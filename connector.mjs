@@ -1,36 +1,26 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: Apache-2.0
-// Mycelium-for-Qonic (v0.1 DRAFT) — Apache-2.0 (Mycelium open ecosystem; NOT Loam's proprietary license).
+// Mycelium-for-Qonic (v0.1 DRAFT)
 // Qonic (cloud-native, browser-first BIM; Ghent, ex-Bricsys) -> Connective Spine.
 //
-// Qonic is IFC-native; products (elements) carry a GUID, so the join key is ifcGuid — it slots onto
-// the spine like OpenAEC, no new key. Three phases, lowest-risk first:
-//   Phase 0  IFC export reader — zero-API: read a Qonic IFC export, lift each rooted object's GlobalId.
-//                                Works today regardless of the API. (QONIC_IFC=<path>)
-//   Phase 1  API read          — Qonic REST v1 (OAuth 2.1 Bearer; scopes projects:read / models:read):
-//                                list models, read products by GUID. (QONIC_TOKEN + QONIC_PROJECT_ID)
-//   Phase 2  write-back        — push enrichment (classification / PO) onto products by GUID
-//                                (models:write, wrapped in a modification session). PROPOSE by default;
-//                                writes only with QONIC_APPLY=1.
+// Qonic is IFC-native; products (elements) carry a GUID, so the join key is ifcGuid. Three phases:
+//   Phase 0  IFC export reader — zero-API: read a Qonic IFC export, lift each rooted object's GlobalId. (QONIC_IFC)
+//   Phase 1  API read          — Qonic REST v1 (OAuth 2.1 Bearer; projects:read/models:read). (QONIC_TOKEN+QONIC_PROJECT_ID)
+//   Phase 2  write-back        — enrichment onto products by GUID (models:write); PROPOSE unless QONIC_APPLY=1.
 //
-// Endpoints/auth/scopes are from the official API docs (see QONIC-API.md, base https://api.qonic.com/v1).
-// Remaining things to confirm against a live model: (a) the product GUID equals the IFC GlobalId
-// (Qonic is IFC-native and its UI copies the object GlobalId, so this is expected), and (b) the exact
-// body shape for the product `update` write. Phase 0 needs none of this.
+// Contract + conformance come from the mycelium-sdk package. Endpoints/auth from QONIC-API.md
+// (base https://api.qonic.com/v1). Confirm on a live model: product GUID == IFC GlobalId, and the
+// exact product `update` body shape. Phase 0 needs neither.
 import { readFileSync } from 'node:fs';
-import { stamp, SPINE_VERSION } from '../../lib/spine-adapter.mjs';
-import { checkConformance } from '../../conformance/validate.mjs';
+import { stamp, checkConformance, report } from 'mycelium-sdk';
 
 const SOURCE  = 'qonic';
 const BASE    = process.env.QONIC_API_URL || 'https://api.qonic.com/v1';
-const TOKEN   = process.env.QONIC_TOKEN || '';                              // OAuth 2.1 Bearer (see QONIC-API.md)
+const TOKEN   = process.env.QONIC_TOKEN || '';
 const PROJECT = process.env.QONIC_PROJECT_ID || '';
-const IFC     = process.env.QONIC_IFC || '';                               // path to an IFC export (Phase 0)
-const APPLY   = process.env.QONIC_APPLY === '1';                           // gate Phase 2 writes
+const IFC     = process.env.QONIC_IFC || '';
+const APPLY   = process.env.QONIC_APPLY === '1';
 
 // ── Phase 0: IFC export reader (pure text scan, no STEP parser, no deps) ─────────
-// Only IfcRoot-derived objects carry a GlobalId as their first attribute, so "IFC type immediately
-// followed by a 22-char IFC-GUID string" selects the real building objects and skips geometry.
 const ENTITY_RE = /(IFC[A-Z0-9]+)\s*\(\s*'([0-9A-Za-z_$]{22})'/g;
 function extractIfcElements(text) {
   const byGuid = new Map();
@@ -55,7 +45,6 @@ async function qonic(path, { method = 'GET', body } = {}) {
 }
 const arr = (d, ...keys) => keys.map((k) => d?.[k]).find(Array.isArray) || (Array.isArray(d) ? d : []);
 
-// Phase 1: list each model's products → spine rows keyed on the product GUID (= IFC GlobalId).
 async function fetchApiElements() {
   if (!PROJECT) throw new Error('QONIC_PROJECT_ID required for API read');
   const models = arr(await qonic(`/projects/${PROJECT}/models`), 'models', 'results', 'data');
@@ -77,14 +66,12 @@ async function fetchApiElements() {
   return out;
 }
 
-// ── Phase 2: write-back (models:write) — accountable: propose unless QONIC_APPLY=1 ──────────────
-// Bulk modifications must be wrapped in a session (start-session … end-session).
+// ── Phase 2: write-back (models:write) — propose unless QONIC_APPLY=1; sessions wrap bulk writes ──
 async function pushEnrichment(modelId, guid, properties) {
   const proposal = { source: SOURCE, action: 'set_properties', projectKey: PROJECT, targetKeys: { ifcGuid: guid }, after: { modelId, properties } };
   if (!APPLY) return { ...proposal, result: 'proposed', note: 'dry-run — set QONIC_APPLY=1 to write' };
   await qonic(`/projects/${PROJECT}/models/products/start-session`, { method: 'POST', body: { modelId } });
   try {
-    // VERIFY the exact update payload against a live model; this keys properties by product GUID.
     await qonic(`/projects/${PROJECT}/models/products`, { method: 'POST', body: { modelId, update: { [guid]: properties } } });
     return { ...proposal, result: 'executed' };
   } catch (e) {
@@ -101,7 +88,7 @@ function toSpine(rec, live) {
       source: SOURCE,
       sourceLocalId: String(rec.id),
       projectKey: rec.projectKey,
-      ifcGuid: rec.ifcGuid || undefined,                    // THE join edge
+      ifcGuid: rec.ifcGuid || undefined,
       ...(rec.classification ? { classification: rec.classification } : {}),
     },
     freshness: stamp({ source: SOURCE, revisionId: rec.modified || (live ? 'live' : IFC), asOf: rec.modified || null, confidence: live ? 'live' : 'snapshot' }),
@@ -109,13 +96,9 @@ function toSpine(rec, live) {
   };
 }
 
-// Phase 0 wins when an IFC export is given (works with no API); else Phase 1 API read.
 const live = !IFC;
 const rows = IFC ? extractIfcElements(readFileSync(IFC, 'utf8')) : await fetchApiElements();
 const records = rows.map((r) => toSpine(r, live)).map((r) => ({ ...r, ...checkConformance(r) }));
+report(SOURCE, records, { mode: IFC ? 'ifc-export' : 'api' });
 
-console.log(JSON.stringify({ source: SOURCE, spineVersion: SPINE_VERSION, mode: IFC ? 'ifc-export' : 'api',
-  conformant: records.every((r) => r.conformant), records }, null, 2));
-process.exit(records.every((r) => r.conformant) ? 0 : 1);
-
-export { extractIfcElements, toSpine, pushEnrichment };                    // for a future test harness
+export { extractIfcElements, toSpine, pushEnrichment };
