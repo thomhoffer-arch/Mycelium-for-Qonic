@@ -1,0 +1,11 @@
+{
+  "name": "mycelium-for-qonic",
+  "version": "0.1.0",
+  "description": "Mycelium connector for Qonic (cloud-native BIM) — joins onto the Connective Spine via ifcGuid.",
+  "type": "module",
+  "bin": { "mycelium-for-qonic": "connector.mjs" },
+  "scripts": { "start": "node connector.mjs" },
+  "dependencies": { "mycelium-sdk": "^0.1.0" },
+  "license": "Apache-2.0",
+  "engines": { "node": ">=18" }
+}
