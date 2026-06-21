@@ -1,0 +1,78 @@
+#!/bin/bash
+# Mycelium-for-Qonic — macOS .pkg postinstall script
+set -euo pipefail
+
+REPO="https://github.com/thomhoffer-arch/Mycelium-for-Qonic.git"
+# Install into the actual user's home, not root (pkgbuild runs as root)
+REAL_USER="${SUDO_USER:-$USER}"
+DEST=$(eval echo "~$REAL_USER/Mycelium-for-Qonic")
+
+log()  { echo "  -> $*"; }
+ok()   { echo "  OK $*"; }
+fail() { echo "  !! $*" >&2; exit 1; }
+
+echo ""
+echo "  Mycelium-for-Qonic installer"
+echo "  =============================="
+echo ""
+
+# ── Node.js >= 18 ─────────────────────────────────────────────────────────────
+NODE_OK=false
+if command -v node &>/dev/null; then
+    MAJOR=$(node -e "process.stdout.write(String(process.versions.node.split('.')[0]))")
+    if [ "$MAJOR" -ge 18 ]; then
+        NODE_OK=true
+        ok "Node $(node --version)"
+    else
+        log "Node $(node --version) too old (need 18+) — upgrading via Homebrew..."
+    fi
+else
+    log "Node.js not found — installing via Homebrew..."
+fi
+
+if [ "$NODE_OK" = "false" ]; then
+    # Ensure Homebrew is present
+    if ! command -v brew &>/dev/null; then
+        log "Installing Homebrew..."
+        sudo -u "$REAL_USER" /bin/bash -c \
+            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    # Source brew for both Intel (/usr/local) and Apple Silicon (/opt/homebrew)
+    for BREW_PATH in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [ -x "$BREW_PATH" ] && eval "$("$BREW_PATH" shellenv)" && break
+    done
+    sudo -u "$REAL_USER" brew install node
+    ok "Node $(node --version) installed"
+fi
+
+# ── git ───────────────────────────────────────────────────────────────────────
+if ! command -v git &>/dev/null; then
+    fail "git not found. Install Xcode Command Line Tools: xcode-select --install"
+fi
+ok "Git $(git --version | awk '{print $3}')"
+
+# ── clone / update ────────────────────────────────────────────────────────────
+if [ -d "$DEST/.git" ]; then
+    log "Updating existing install in $DEST..."
+    sudo -u "$REAL_USER" git -C "$DEST" pull --ff-only
+else
+    log "Cloning into $DEST..."
+    sudo -u "$REAL_USER" git clone "$REPO" "$DEST"
+fi
+
+cd "$DEST"
+
+# ── npm install ───────────────────────────────────────────────────────────────
+log "Installing npm dependencies..."
+sudo -u "$REAL_USER" npm install --prefer-offline
+ok "Dependencies installed"
+
+# ── setup wizard ─────────────────────────────────────────────────────────────
+echo ""
+sudo -u "$REAL_USER" node setup.mjs
+
+echo ""
+echo "  Done! To run the connector:"
+echo "    cd ~/Mycelium-for-Qonic"
+echo "    node connector.mjs"
+echo ""

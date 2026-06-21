@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Windows .exe (NSIS) ────────────────────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+
+      - name: Copy install.ps1 next to .nsi
+        run: copy installers\windows\install.ps1 installers\windows\
+
+      - name: Build .exe
+        working-directory: installers/windows
+        run: makensis mycelium-qonic.nsi
+
+      - name: Rename with version
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Move-Item installers\windows\mycelium-for-qonic-setup.exe `
+                    mycelium-for-qonic-$tag-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: mycelium-for-qonic-*-setup.exe
+
+  # ── macOS .pkg ────────────────────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make postinstall executable
+        run: chmod +x installers/macos/scripts/postinstall
+
+      - name: Build .pkg
+        run: |
+          TAG="${{ github.ref_name }}"
+          pkgbuild \
+            --nopayload \
+            --scripts installers/macos/scripts \
+            --identifier com.mycelium.qonic \
+            --version "${TAG#v}" \
+            "mycelium-for-qonic-${TAG}.pkg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg
+          path: mycelium-for-qonic-*.pkg
+
+  # ── GitHub Release ─────────────────────────────────────────────────────────
+  release:
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-pkg
+          path: dist/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" dist/* \
+            --repo ${{ github.repository }} \
+            --title "Mycelium-for-Qonic $TAG" \
+            --generate-notes \
+            --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
+            --verify-tag
