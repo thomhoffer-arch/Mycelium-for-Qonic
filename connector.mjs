@@ -1,7 +1,16 @@
 #!/usr/bin/env node
 // mycelium-for-qonic — Qonic model element → spine records.
 // Qonic carries IFC GlobalIds natively, so ifcGuid is the primary join key.
+import { readFileSync } from 'node:fs';
 import { runAdapter } from 'mycelium-sdk';
+
+// auto-load .env if present (written by setup.mjs; no extra deps)
+try {
+  for (const line of readFileSync('.env', 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
+  }
+} catch { /* no .env — env vars must be set externally */ }
 
 const config = {
   source: 'qonic',
