@@ -1,11 +1,27 @@
 {
   "name": "mycelium-for-qonic",
   "version": "0.1.0",
-  "description": "Mycelium connector — Qonic model element records",
+  "description": "Mycelium Studio connector — Qonic model element records",
   "type": "module",
   "main": "connector.mjs",
-  "scripts": { "start": "node connector.mjs", "test": "node connector.mjs" },
-  "dependencies": { "mycelium-sdk": "^0.1.0" },
+  "scripts": {
+    "start":        "node connector.mjs",
+    "test":         "node connector.mjs",
+    "build:bundle": "esbuild src/standalone.mjs --bundle --platform=node --format=cjs --outfile=dist/bundle.cjs",
+    "build:exe":    "pkg dist/bundle.cjs --targets node18-win-x64,node18-macos-x64,node18-macos-arm64 --output dist/mycelium-for-qonic",
+    "build":        "mkdir -p dist && npm run build:bundle && npm run build:exe"
+  },
+  "dependencies": {
+    "mycelium-sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^5.12.0",
+    "esbuild": "^0.21.0"
+  },
+  "pkg": {
+    "targets": ["node18-win-x64", "node18-macos-x64", "node18-macos-arm64"],
+    "outputPath": "dist"
+  },
   "license": "Apache-2.0",
   "engines": { "node": ">=18" }
 }
