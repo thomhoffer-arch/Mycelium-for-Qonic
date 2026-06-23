@@ -1,7 +1,7 @@
 {
   "name": "mycelium-for-qonic",
   "version": "0.1.0",
-  "description": "Mycelium connector — Qonic model element records",
+  "description": "Mycelium Studio connector — Qonic model element records",
   "type": "module",
   "main": "connector.mjs",
   "scripts": {

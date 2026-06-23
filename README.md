@@ -1,6 +1,6 @@
 # mycelium-for-qonic
 
-A [Mycelium](https://connectivespine.org) connector for **Qonic** — collaborative BIM element records keyed by `ifcGuid`.
+A **Mycelium Studio** connector for **Qonic** — collaborative BIM element records keyed by `ifcGuid`.
 
 ## Download
 
@@ -75,7 +75,7 @@ git tag v0.2.0 && git push origin v0.2.0
 
 ## Reference
 
-- [Mycelium spec](https://connectivespine.org/spec/)
+- [Mycelium Studio spec](https://connectivespine.org/spec/)
 - [mycelium-sdk on npm](https://www.npmjs.com/package/mycelium-sdk)
 - [Qonic API docs](https://api-docs.qonic.com/) — see also `QONIC-API.md`
 
